@@ -128,8 +128,8 @@ public class JSONFileReaderWriterFactory implements FileReaderWriterFactory {
             JsonNode valueNode = mapper.readTree(keyValue.getValue());
 
             ObjectNode wrapperNode = mapper.createObjectNode();
-            wrapperNode.set("offset", offsetNode);
-            wrapperNode.set("value", valueNode);
+            wrapperNode.set(OFFSET_KEY, offsetNode);
+            wrapperNode.set(VALUE_KEY, valueNode);
 
             String jsonStr = mapper.writeValueAsString(wrapperNode);
 
