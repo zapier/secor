@@ -46,8 +46,8 @@ import java.io.EOFException;
  */
 public class JSONFileReaderWriterFactory implements FileReaderWriterFactory {
     private static final byte DELIMITER = '\n';
-    private static final String OFFSET_KEY = "offset";
-    private static final String VALUE_KEY = "value";
+    private static final String OFFSET_KEY = "__offset__";
+    private static final String VALUE_KEY = "\"__value__\"";
 
     public final static ObjectMapper mapper = new ObjectMapper();
 
@@ -89,11 +89,15 @@ public class JSONFileReaderWriterFactory implements FileReaderWriterFactory {
                 messageBuffer.write(nextByte);
             }
 
-            ObjectNode containerNode = (ObjectNode) new ObjectMapper().readTree(messageBuffer.toByteArray());
-            JsonNode offsetNode = containerNode.remove(OFFSET_KEY);
-            JsonNode valueNode = containerNode.remove(VALUE_KEY);
+            ObjectNode wrapperNode = (ObjectNode) new ObjectMapper().readTree(messageBuffer.toByteArray());
+            JsonNode offsetNode = wrapperNode.remove(OFFSET_KEY);
 
-            return new KeyValue(offsetNode.asLong(), mapper.writeValueAsBytes(valueNode));
+            if(wrapperNode.has(VALUE_KEY)) { // means that this is a wrapper object
+                JsonNode valueNode = wrapperNode.remove(VALUE_KEY);
+                return new KeyValue(offsetNode.asLong(), mapper.writeValueAsBytes(valueNode));
+            } else {
+                return new KeyValue(offsetNode.asLong(), mapper.writeValueAsBytes(wrapperNode));
+            }
         }
 
         @Override
@@ -123,16 +127,23 @@ public class JSONFileReaderWriterFactory implements FileReaderWriterFactory {
 
         @Override
         public void write(KeyValue keyValue) throws IOException {
-            // Push the incoming JSON string value into a container that also stores the corresponding offset
+            // Push the incoming JSON string value into a wrapper that also stores the corresponding offset
             JsonNode offsetNode = mapper.valueToTree(keyValue.getOffset());
             JsonNode valueNode = mapper.readTree(keyValue.getValue());
+            ObjectNode wrapperNode;
 
-            ObjectNode wrapperNode = mapper.createObjectNode();
-            wrapperNode.set(OFFSET_KEY, offsetNode);
-            wrapperNode.set(VALUE_KEY, valueNode);
+            if(valueNode.isObject()) {
+                // If the incoming value is already a JSON object, we simply enrich it with the offset
+                wrapperNode = (ObjectNode) (valueNode);
+                wrapperNode.set(OFFSET_KEY, offsetNode);
+            } else {
+                // Otherwise, we create a new wrapper object to encapsulate both offset and value
+                wrapperNode = mapper.createObjectNode();
+                wrapperNode.set(VALUE_KEY, valueNode);
+                wrapperNode.set(OFFSET_KEY, offsetNode);
+            }
 
             String jsonStr = mapper.writeValueAsString(wrapperNode);
-
             this.mWriter.write(jsonStr.getBytes());
             this.mWriter.write(DELIMITER);
         }
